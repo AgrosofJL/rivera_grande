@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart'; // Importante para usar kIsWeb
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'base_datos.dart';
 import 'logueo.dart';
@@ -7,7 +8,7 @@ import 'menu.dart';
 import 'package:intl/date_symbol_data_local.dart';
 
 // Importaciones para soportar sqflite en Web
-import 'package:sqflite_common_ffi_web/sqflite_common_ffi_web.dart';
+
 import 'package:sqflite/sqflite.dart';
 
 void main() async {
