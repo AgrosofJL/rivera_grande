@@ -25,6 +25,10 @@ jobs:
       - name: Instalar dependencias
         run: flutter pub get
 
+      # ACA ES LO NUEVO: Genera automáticamente los binarios de SQLite Web en el servidor de GitHub
+      - name: Configurar binarios de SQLite Web
+        run: dart run sqflite_common_ffi_web:setup --force
+
       - name: Compilar Flutter Web
         run: flutter build web --release --base-href "/rivera_grande/"
 
