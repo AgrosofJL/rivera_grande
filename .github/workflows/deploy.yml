@@ -25,7 +25,7 @@ jobs:
       - name: Instalar dependencias
         run: flutter pub get
 
-      # ACA ES LO NUEVO: Genera automáticamente los binarios de SQLite Web en el servidor de GitHub
+      # Comando crítico para generar sqflite_sw.js y sqlite3.wasm en la carpeta web/
       - name: Configurar binarios de SQLite Web
         run: dart run sqflite_common_ffi_web:setup --force
 
