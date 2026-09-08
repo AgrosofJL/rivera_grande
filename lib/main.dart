@@ -1,25 +1,28 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'base_datos.dart';
 import 'logueo.dart';
 import 'menu.dart';
-import 'package:intl/date_symbol_data_local.dart';
-
-// Importaciones para sqflite en Web
-import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
-import 'package:sqflite/sqflite.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // OBLIGATORIO: Configurar antes de cualquier llamada a base de datos
+  // ACA ES LO NUEVO: Configuración del worker con la sub-ruta exacta de GitHub Pages
   if (kIsWeb) {
-    databaseFactory = databaseFactoryFfiWeb;
+    databaseFactory = createDatabaseFactoryFfiWeb(
+      options: SqfliteFfiWebOptions(
+        sqlite3WasmUri: Uri.parse('sqlite3.wasm'),
+        sharedWorkerUri: Uri.parse('sqflite_sw.js'),
+      ),
+    );
   }
 
   await initializeDateFormatting('es_ES', null);
-  
+
   try {
     await Supabase.initialize(
       url: 'https://izspbluodbxvaskelzjr.supabase.co',
@@ -45,7 +48,7 @@ class MyApp extends StatelessWidget {
         colorSchemeSeed: Colors.blueAccent,
         fontFamily: 'Roboto',
       ),
-      home: const PaginaLogeo(), // Directo a login para evitar llamadas prematuras del FutureBuilder
+      home: const PaginaLogeo(),
     );
   }
 }

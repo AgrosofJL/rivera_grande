@@ -21,11 +21,24 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    // ACA ES LO NUEVO: Manejo específico y seguro para Web y plataformas móviles
-    if (kIsWeb) {
-      databaseFactory = databaseFactoryFfiWeb;
+    try {
+      if (kIsWeb) {
+        return await openDatabase(
+          'la_rivera_celdas.db',
+          version: 12,
+          onCreate: _onCreate,
+          onUpgrade: (db, oldVersion, newVersion) async {
+            if (oldVersion < newVersion) {
+              await _onUpgradeDropTables(db);
+              _onCreate(db, newVersion);
+            }
+          },
+        );
+      }
+
+      String path = join(await getDatabasesPath(), 'la_rivera_celdas.db');
       return await openDatabase(
-        'la_rivera_celdas.db',
+        path,
         version: 12,
         onCreate: _onCreate,
         onUpgrade: (db, oldVersion, newVersion) async {
@@ -35,21 +48,10 @@ class DatabaseHelper {
           }
         },
       );
+    } catch (e) {
+      debugPrint("Error abriendo base de datos SQLite: $e");
+      rethrow;
     }
-
-    // Comportamiento nativo original para Android e iOS
-    String path = join(await getDatabasesPath(), 'la_rivera_celdas.db');
-    return await openDatabase(
-      path,
-      version: 12,
-      onCreate: _onCreate,
-      onUpgrade: (db, oldVersion, newVersion) async {
-        if (oldVersion < newVersion) {
-          await _onUpgradeDropTables(db);
-          _onCreate(db, newVersion);
-        }
-      },
-    );
   }
 
   // Método auxiliar ordenado para el borrado de tablas en actualizaciones
