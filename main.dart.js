@@ -29405,14 +29405,14 @@ a6Q(){var s=0,r=A.r(t.H),q,p,o,n,m,l,k
 var $async$a6Q=A.t(function(a,b){if(a===1)return A.o(b,r)
 for(;;)switch(s){case 0:if($.aj==null)A.avE()
 $.aj.toString
+q=$.b4l()
+if($.aSC!=null)A.lg("*** sqflite warning ***\n\nYou are changing sqflite default factory.\nBe aware of the potential side effects. Any library using sqflite\nwill have this factory as the default for all operations.\n\n*** sqflite warning ***\n")
+$.aSC=q
 if($.a75() instanceof A.yA){$.beo=A.bh0()
 $.a6P=$.a6G=null}if($.aPG() instanceof A.yA)$.bh_=A.bgZ()
 s=2
 return A.h(A.dv(null,t.H),$async$a6Q)
-case 2:q=$.b4l()
-if($.aSC!=null)A.lg("*** sqflite warning ***\n\nYou are changing sqflite default factory.\nBe aware of the potential side effects. Any library using sqflite\nwill have this factory as the default for all operations.\n\n*** sqflite warning ***\n")
-$.aSC=q
-s=3
+case 2:s=3
 return A.h(A.atu("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml6c3BibHVvZGJ4dmFza2VsempyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc3NTUxMzksImV4cCI6MjA5MzMzMTEzOX0.oP9Xlf2D6MSNLD8QzOJVG_-rppGBjN5lOREp40FZ5Xo","https://izspbluodbxvaskelzjr.supabase.co"),$async$a6Q)
 case 3:if($.aj==null)A.avE()
 q=$.aj
