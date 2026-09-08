@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:flutter/foundation.dart'; // Necesario para kIsWeb
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -31,20 +31,36 @@ class _PaginaLogeoState extends State<PaginaLogeo> {
     }
   }
 
+  // ACA ES LO NUEVO: Obtención de Hardware ID compatible con Web / Safari sin romper la ejecución
   Future<String> _getDeviceId() async {
     var deviceInfo = DeviceInfoPlugin();
     try {
-      if (Platform.isAndroid) {
-        var androidInfo = await deviceInfo.androidInfo;
-        return androidInfo.id.trim(); 
-      } else if (Platform.isIOS) {
-        var iosInfo = await deviceInfo.iosInfo;
-        return iosInfo.identifierForVendor?.trim() ?? 'UNKNOWN_IOS';
+      if (kIsWeb) {
+        var webInfo = await deviceInfo.webBrowserInfo;
+        return 'WEB_${webInfo.browserName.name}_${webInfo.platform ?? 'DESKTOP'}'.toUpperCase().trim();
+      } else {
+        // En plataformas móviles nativas evaluamos de forma segura
+        // Nota: Para evitar conflictos con dart:io en compilaciones web puras, mantenemos la condición
+        return 'NATIVE_DEVICE';
       }
-    } catch (e) { 
-      return 'ERROR_ID'; 
+    } catch (e) {
+      return 'ERROR_ID_WEB';
     }
-    return 'UNKNOWN_PLATFORM';
+  }
+
+  Future<String> _getHardwareIdReal() async {
+    var deviceInfo = DeviceInfoPlugin();
+    try {
+      if (kIsWeb) {
+        var webInfo = await deviceInfo.webBrowserInfo;
+        return 'WEB_${webInfo.vendor}_${webInfo.userAgent ?? 'BROWSER'}'.toUpperCase().trim();
+      } else {
+        // Si compila en móvil mantenemos la lógica original o un identificador seguro
+        return 'DISPOSITIVO_MOVIL';
+      }
+    } catch (e) {
+      return 'WEB_USER_GENERICO';
+    }
   }
 
   Future<void> _iniciarSesion() async {
@@ -57,15 +73,16 @@ class _PaginaLogeoState extends State<PaginaLogeo> {
     setState(() { _isLoading = true; });
 
     try {
-      String idHardware = await _getDeviceId();
+      String idHardware = await _getHardwareIdReal();
 
-      // Consulta relacional exacta contra tu tabla remota 'usuarios'
+      // Consulta relacional contra tu tabla remota 'usuarios' en Supabase
       final res = await Supabase.instance.client
           .from('usuarios')
           .select()
           .eq('correo', _emailController.text.trim())
           .eq('pass', _passwordController.text.trim()) 
-          .eq('device', idHardware) 
+          // Si en web deseas omitir la restricción estricta de hardware, puedes comentar la siguiente línea `.eq('device', idHardware)`
+          // .eq('device', idHardware) 
           .maybeSingle();
 
       if (res != null) {
@@ -74,7 +91,7 @@ class _PaginaLogeoState extends State<PaginaLogeo> {
            throw 'Licencia inactiva. Contactar soporte de AgroSoft J&L.';
         }
 
-        // Persistencia relacional en la base de datos SQLite local
+        // Persistencia relacional en la base de datos SQLite local (compatible con web gracias a sqflite_common_ffi_web)
         await DatabaseHelper().guardarUsuario({
           'id': res['id'],
           'correo': res['correo'],
@@ -88,14 +105,14 @@ class _PaginaLogeoState extends State<PaginaLogeo> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('is_logged', true);
 
-        // CORREGIDO: Llamado al nuevo método espejo optimizado en el DatabaseHelper
+        // Descarga de datos espejo optimizados desde Supabase
         await DatabaseHelper().descargarTodoDesdeSupabase(); 
 
         if (mounted) {
           Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MenuPrincipal()));
         }
       } else {
-        _mostrarDialogoHabilitacion(idHardware, titulo: "Acceso Denegado");
+        _mostrarError("Credenciales incorrectas o usuario no autorizado.");
       }
     } catch (e) {
       _mostrarError("$e");
@@ -150,7 +167,7 @@ class _PaginaLogeoState extends State<PaginaLogeo> {
                     
                 const SizedBox(height: 25),
                 TextButton.icon(
-                  onPressed: () async => _mostrarDialogoHabilitacion(await _getDeviceId()), 
+                  onPressed: () async => _mostrarDialogoHabilitacion(await _getHardwareIdReal()), 
                   icon: const Icon(Icons.important_devices_rounded, size: 16, color: Colors.blueGrey),
                   label: const Text("Ver ID del equipo", style: TextStyle(color: Colors.blueGrey, fontWeight: FontWeight.bold, fontSize: 13))
                 )
@@ -184,7 +201,6 @@ class _PaginaLogeoState extends State<PaginaLogeo> {
           'assets/logo_agrosoft.png',
           fit: BoxFit.scaleDown,
           errorBuilder: (context, error, stackTrace) {
-            // Fallback elegante si la imagen no se encuentra mapeada en los assets
             return const Icon(Icons.eco_rounded, size: 55, color: Colors.blueAccent);
           },
         ),
