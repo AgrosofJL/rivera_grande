@@ -2,6 +2,8 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:math';
+import 'package:flutter/foundation.dart'; // Asegúrate de tener este import para kIsWeb
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart'; // Imp
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -19,33 +21,54 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
+    // ACA ES LO NUEVO: Manejo específico y seguro para Web y plataformas móviles
+    if (kIsWeb) {
+      databaseFactory = databaseFactoryFfiWeb;
+      return await openDatabase(
+        'la_rivera_celdas.db',
+        version: 12,
+        onCreate: _onCreate,
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < newVersion) {
+            await _onUpgradeDropTables(db);
+            _onCreate(db, newVersion);
+          }
+        },
+      );
+    }
+
+    // Comportamiento nativo original para Android e iOS
     String path = join(await getDatabasesPath(), 'la_rivera_celdas.db');
     return await openDatabase(
       path,
-      // ESTO LO MODIFIQUE: Versión 12 para sincronizar con el DDL real de Supabase
       version: 12,
       onCreate: _onCreate,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < newVersion) {
-          await db.execute("DROP TABLE IF EXISTS usuario_local");
-          await db.execute("DROP TABLE IF EXISTS celdas_control_calidad_calibre");
-          await db.execute("DROP TABLE IF EXISTS celdas_historial");
-          await db.execute("DROP TABLE IF EXISTS celdas_recepcion");
-          await db.execute("DROP TABLE IF EXISTS control_calidad");
-          await db.execute("DROP TABLE IF EXISTS detalle_despacho");
-          await db.execute("DROP TABLE IF EXISTS embolsado_bag");
-          await db.execute("DROP TABLE IF EXISTS empaque_armado_bins");
-          await db.execute("DROP TABLE IF EXISTS volcado_bag");
-          await db.execute("DROP TABLE IF EXISTS volcado_bins");
-          await db.execute("DROP TABLE IF EXISTS inventario");
-          await db.execute("DROP TABLE IF EXISTS parametros_calibre");
-          await db.execute("DROP TABLE IF EXISTS parametros_calidad");
-          await db.execute("DROP TABLE IF EXISTS parametros_celdas");
-          await db.execute("DROP TABLE IF EXISTS parametros_depositos");
+          await _onUpgradeDropTables(db);
           _onCreate(db, newVersion);
         }
       },
     );
+  }
+
+  // Método auxiliar ordenado para el borrado de tablas en actualizaciones
+  Future<void> _onUpgradeDropTables(Database db) async {
+    await db.execute("DROP TABLE IF EXISTS usuario_local");
+    await db.execute("DROP TABLE IF EXISTS celdas_control_calidad_calibre");
+    await db.execute("DROP TABLE IF EXISTS celdas_historial");
+    await db.execute("DROP TABLE IF EXISTS celdas_recepcion");
+    await db.execute("DROP TABLE IF EXISTS control_calidad");
+    await db.execute("DROP TABLE IF EXISTS detalle_despacho");
+    await db.execute("DROP TABLE IF EXISTS embolsado_bag");
+    await db.execute("DROP TABLE IF EXISTS empaque_armado_bins");
+    await db.execute("DROP TABLE IF EXISTS volcado_bag");
+    await db.execute("DROP TABLE IF EXISTS volcado_bins");
+    await db.execute("DROP TABLE IF EXISTS inventario");
+    await db.execute("DROP TABLE IF EXISTS parametros_calibre");
+    await db.execute("DROP TABLE IF EXISTS parametros_calidad");
+    await db.execute("DROP TABLE IF EXISTS parametros_celdas");
+    await db.execute("DROP TABLE IF EXISTS parametros_depositos");
   }
 
   Future<void> _onCreate(Database db, int version) async {
