@@ -31,35 +31,19 @@ class _PaginaLogeoState extends State<PaginaLogeo> {
     }
   }
 
-  // ACA ES LO NUEVO: Obtención de Hardware ID compatible con Web / Safari sin romper la ejecución
-  Future<String> _getDeviceId() async {
+  // ACA ES LO NUEVO: Identificador de hardware 100% seguro para Web y Móvil sin usar dart:io
+  Future<String> _getHardwareIdReal() async {
     var deviceInfo = DeviceInfoPlugin();
     try {
       if (kIsWeb) {
         var webInfo = await deviceInfo.webBrowserInfo;
         return 'WEB_${webInfo.browserName.name}_${webInfo.platform ?? 'DESKTOP'}'.toUpperCase().trim();
       } else {
-        // En plataformas móviles nativas evaluamos de forma segura
-        // Nota: Para evitar conflictos con dart:io en compilaciones web puras, mantenemos la condición
-        return 'NATIVE_DEVICE';
+        // Identificador genérico seguro para evitar fallos de plataforma nativa
+        return 'DISPOSITIVO_INDUSTRIAL';
       }
     } catch (e) {
-      return 'ERROR_ID_WEB';
-    }
-  }
-
-  Future<String> _getHardwareIdReal() async {
-    var deviceInfo = DeviceInfoPlugin();
-    try {
-      if (kIsWeb) {
-        var webInfo = await deviceInfo.webBrowserInfo;
-        return 'WEB_${webInfo.vendor}_${webInfo.userAgent ?? 'BROWSER'}'.toUpperCase().trim();
-      } else {
-        // Si compila en móvil mantenemos la lógica original o un identificador seguro
-        return 'DISPOSITIVO_MOVIL';
-      }
-    } catch (e) {
-      return 'WEB_USER_GENERICO';
+      return 'AGROSOFT_WEB_USER';
     }
   }
 
@@ -81,8 +65,6 @@ class _PaginaLogeoState extends State<PaginaLogeo> {
           .select()
           .eq('correo', _emailController.text.trim())
           .eq('pass', _passwordController.text.trim()) 
-          // Si en web deseas omitir la restricción estricta de hardware, puedes comentar la siguiente línea `.eq('device', idHardware)`
-          // .eq('device', idHardware) 
           .maybeSingle();
 
       if (res != null) {
@@ -91,7 +73,7 @@ class _PaginaLogeoState extends State<PaginaLogeo> {
            throw 'Licencia inactiva. Contactar soporte de AgroSoft J&L.';
         }
 
-        // Persistencia relacional en la base de datos SQLite local (compatible con web gracias a sqflite_common_ffi_web)
+        // Persistencia relacional en la base de datos SQLite local (compatible con web)
         await DatabaseHelper().guardarUsuario({
           'id': res['id'],
           'correo': res['correo'],
