@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import 'dart:math';
 
 class DatabaseHelper {
@@ -13,29 +15,15 @@ class DatabaseHelper {
 
   final supabase = Supabase.instance.client;
 
-  Future<Database> get database async {
+  // ESTO LO MODIFIQUE: En Web no se inicializa ni se toca sqflite
+  Future<Database?> get database async {
+    if (kIsWeb) return null;
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
   Future<Database> _initDatabase() async {
-    // ACA ES LO NUEVO: En Web no se usa getDatabasesPath()
-    if (kIsWeb) {
-      return await openDatabase(
-        'la_rivera_celdas.db',
-        version: 12,
-        onCreate: _onCreate,
-        onUpgrade: (db, oldVersion, newVersion) async {
-          if (oldVersion < newVersion) {
-            await _onUpgradeDropTables(db);
-            _onCreate(db, newVersion);
-          }
-        },
-      );
-    }
-
-    // Para Android e iOS
     String path = join(await getDatabasesPath(), 'la_rivera_celdas.db');
     return await openDatabase(
       path,
@@ -67,8 +55,6 @@ class DatabaseHelper {
     await db.execute("DROP TABLE IF EXISTS parametros_celdas");
     await db.execute("DROP TABLE IF EXISTS parametros_depositos");
   }
-
-  // ... Mantén el resto de métodos tal cual los tienes
 
   Future<void> _onCreate(Database db, int version) async {
     // 1. Sesión Local
@@ -168,20 +154,42 @@ class DatabaseHelper {
   }
 
   // --- MÉTODOS DE SESIÓN ---
+  // ESTO LO MODIFIQUE: Soporte multiplataforma con SharedPreferences y SQLite
   Future<void> guardarUsuario(Map<String, dynamic> user) async {
-    final db = await database;
-    await db.delete('usuario_local');
-    await db.insert('usuario_local', user);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('sesion_activa', jsonEncode(user));
+
+    if (!kIsWeb) {
+      final db = await database;
+      if (db != null) {
+        await db.delete('usuario_local');
+        await db.insert('usuario_local', user);
+      }
+    }
   }
 
   Future<Map<String, dynamic>?> obtenerUsuarioLocal() async {
-    final db = await database;
-    final res = await db.query('usuario_local');
-    return res.isNotEmpty ? res.first : null;
+    final prefs = await SharedPreferences.getInstance();
+    final sesionStr = prefs.getString('sesion_activa');
+    if (sesionStr != null) {
+      return jsonDecode(sesionStr) as Map<String, dynamic>;
+    }
+
+    if (!kIsWeb) {
+      final db = await database;
+      if (db != null) {
+        final res = await db.query('usuario_local');
+        return res.isNotEmpty ? res.first : null;
+      }
+    }
+    return null;
   }
 
   // --- DESCARGA (PULL) DESDE SUPABASE ---
+  // ESTO LO MODIFIQUE: En Web se omite porque la app trabaja online en tiempo real
   Future<void> descargarTodoDesdeSupabase() async {
+    if (kIsWeb) return;
+
     // 1. Catálogos
     await _descargarTablaServidor('inventario', esParametroPuro: true);
     await _descargarTablaServidor('parametros_calibre', esParametroPuro: true);
@@ -203,6 +211,8 @@ class DatabaseHelper {
 
   Future<void> _descargarTablaServidor(String nombreTabla, {required bool esParametroPuro}) async {
     final db = await database;
+    if (db == null) return;
+
     try {
       final datos = await supabase.from(nombreTabla).select();
       if (datos.isNotEmpty) {
@@ -217,7 +227,6 @@ class DatabaseHelper {
         for (var row in datos) {
           Map<String, dynamic> fila = Map<String, dynamic>.from(row);
 
-          // Normalización de claves que pudieran llegar con espacios
           if (fila.containsKey('celda nro')) {
             fila['celda_nro'] = fila['celda nro'];
             fila.remove('celda nro');
@@ -242,14 +251,26 @@ class DatabaseHelper {
         await batch.commit(noResult: true);
       }
     } catch (e) {
-      print("Error descargando tabla $nombreTabla: $e");
-      rethrow;
+      debugPrint("Error descargando tabla $nombreTabla: $e");
     }
   }
 
-// ACA ES LO NUEVO: 1. Busca el último ciclo ACTIVO de un Big Bag físico
+  // ACA ES LO NUEVO: 1. Busca el último ciclo ACTIVO de un Big Bag físico
   Future<Map<String, dynamic>?> obtenerBolsonActivoPorQR(String qrCodigo) async {
+    if (kIsWeb) {
+      final res = await supabase
+          .from('embolsado_bag')
+          .select()
+          .eq('cod_bigbag', qrCodigo)
+          .neq('estado', 'VOLCADO')
+          .neq('estado', 'INACTIVO')
+          .order('fecha', ascending: false)
+          .limit(1);
+      return res.isNotEmpty ? res.first : null;
+    }
+
     final db = await database;
+    if (db == null) return null;
     final List<Map<String, dynamic>> res = await db.query(
       'embolsado_bag',
       where: 'cod_bigbag = ? AND (estado != \'VOLCADO\' AND estado != \'INACTIVO\' OR estado IS NULL)',
@@ -261,7 +282,20 @@ class DatabaseHelper {
 
   // ACA ES LO NUEVO: 2. Busca el último ciclo ACTIVO de un Bin físico
   Future<Map<String, dynamic>?> obtenerBinActivoPorQR(String qrCodigo) async {
+    if (kIsWeb) {
+      final res = await supabase
+          .from('empaque_armado_bins')
+          .select()
+          .eq('cod_bin', qrCodigo)
+          .neq('estado', 'VOLCADO')
+          .neq('estado', 'INACTIVO')
+          .order('fecha_emb', ascending: false)
+          .limit(1);
+      return res.isNotEmpty ? res.first : null;
+    }
+
     final db = await database;
+    if (db == null) return null;
     final List<Map<String, dynamic>> res = await db.query(
       'empaque_armado_bins',
       where: 'cod_bin = ? AND (estado != \'VOLCADO\' AND estado != \'INACTIVO\' OR estado IS NULL)',
@@ -273,23 +307,32 @@ class DatabaseHelper {
 
   // ACA ES LO NUEVO: 3. Libera ciclos viejos si se reutiliza el QR para un nuevo llenado consecutivo
   Future<void> cerrarCicloPrevioQR({
-    required DatabaseExecutor db,
+    required dynamic db,
     required String nombreTabla,
     required String columnaQR,
     required String codigoQR,
     required String nuevoRegLocal,
   }) async {
-    await db.update(
-      nombreTabla,
-      {
+    if (kIsWeb) {
+      await supabase.from(nombreTabla).update({
         'estado': 'VOLCADO',
-        'sincronizado': 0, // Notifica el cambio de estado a la nube
-      },
-      where: '$columnaQR = ? AND reg_local != ? AND (estado != \'VOLCADO\' AND estado != \'INACTIVO\' OR estado IS NULL)',
-      whereArgs: [codigoQR, nuevoRegLocal],
-    );
+      }).eq(columnaQR, codigoQR).neq('reg_local', nuevoRegLocal);
+      return;
+    }
+
+    if (db is DatabaseExecutor) {
+      await db.update(
+        nombreTabla,
+        {
+          'estado': 'VOLCADO',
+          'sincronizado': 0,
+        },
+        where: '$columnaQR = ? AND reg_local != ? AND (estado != \'VOLCADO\' AND estado != \'INACTIVO\' OR estado IS NULL)',
+        whereArgs: [codigoQR, nuevoRegLocal],
+      );
+    }
   }
-  
+
   String generarIdCorto({int longitud = 8}) {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final rnd = Random();
