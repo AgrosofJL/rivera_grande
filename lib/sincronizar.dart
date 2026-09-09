@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart'; // ACA ES LO NUEVO: Necesario para kIsWeb
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'base_datos.dart';
@@ -22,9 +23,12 @@ class PaginaSincronizar extends StatefulWidget {
   State<PaginaSincronizar> createState() => _PaginaSincronizarState();
 
   // =======================================================================
-  // ACA ES LO NUEVO: 1. SUBIDA PUNTUAL DE CELDAS Y CALIDAD
+  // 1. SUBIDA PUNTUAL DE CELDAS Y CALIDAD
   // =======================================================================
   static Future<int> sincronizarCeldas({String? usuario}) async {
+    // ESTO LO MODIFIQUE: En Web no hay buffer local SQLite
+    if (kIsWeb) return 0;
+
     final db = await DatabaseHelper().database;
     final supabase = Supabase.instance.client;
     int subidos = 0;
@@ -111,9 +115,12 @@ class PaginaSincronizar extends StatefulWidget {
   }
 
   // =======================================================================
-  // ACA ES LO NUEVO: 2. SUBIDA PUNTUAL DE EMBOLSADO DE BIG BAGS
+  // 2. SUBIDA PUNTUAL DE EMBOLSADO DE BIG BAGS
   // =======================================================================
   static Future<int> sincronizarBag() async {
+    // ESTO LO MODIFIQUE: En Web no hay buffer local SQLite
+    if (kIsWeb) return 0;
+
     final db = await DatabaseHelper().database;
     final supabase = Supabase.instance.client;
 
@@ -146,10 +153,13 @@ class PaginaSincronizar extends StatefulWidget {
     return 0;
   }
 
-// =======================================================================
-  // ACA ES LO NUEVO: SUBIDA PUNTUAL EXCLUSIVA DE CELDAS RECEPCIÓN
+  // =======================================================================
+  // SUBIDA PUNTUAL EXCLUSIVA DE CELDAS RECEPCIÓN
   // =======================================================================
   static Future<int> sincronizarRecepcion() async {
+    // ESTO LO MODIFIQUE: En Web no hay buffer local SQLite
+    if (kIsWeb) return 0;
+
     final db = await DatabaseHelper().database;
     final supabase = Supabase.instance.client;
 
@@ -188,19 +198,20 @@ class PaginaSincronizar extends StatefulWidget {
     }
     return 0;
   }
-  
+
   // =======================================================================
-  // ACA ES LO NUEVO: 3. SUBIDA PUNTUAL DE VOLCADO DE BIG BAGS
+  // 3. SUBIDA PUNTUAL DE VOLCADO DE BIG BAGS
   // =======================================================================
   static Future<int> sincronizarVolcadoBag() async {
+    // ESTO LO MODIFIQUE: En Web no hay buffer local SQLite
+    if (kIsWeb) return 0;
+
     final db = await DatabaseHelper().database;
     final supabase = Supabase.instance.client;
     int subidos = 0;
 
-    // Subir cambio de estado a VOLCADO en embolsado_bag si lo hubiera
     subidos += await sincronizarBag();
 
-    // Subir nuevo registro a volcado_bag
     final volcados = await db.query('volcado_bag', where: 'sincronizado = 0 OR sincronizado IS NULL');
     if (volcados.isNotEmpty) {
       final payload = volcados.map((e) => {
@@ -229,9 +240,12 @@ class PaginaSincronizar extends StatefulWidget {
   }
 
   // =======================================================================
-  // ACA ES LO NUEVO: 4. SUBIDA PUNTUAL DE BINS Y VOLCADO DE BINS
+  // 4. SUBIDA PUNTUAL DE BINS Y VOLCADO DE BINS
   // =======================================================================
   static Future<int> sincronizarBins() async {
+    // ESTO LO MODIFIQUE: En Web no hay buffer local SQLite
+    if (kIsWeb) return 0;
+
     final db = await DatabaseHelper().database;
     final supabase = Supabase.instance.client;
     int subidos = 0;
@@ -295,6 +309,11 @@ class PaginaSincronizar extends StatefulWidget {
   // MOTOR UNIFICADO: PUSH COMPLETO + PULL DE CATÁLOGOS
   // =======================================================================
   static Future<String> sincronizarTodo({String? usuario}) async {
+    // ACA ES LO NUEVO: Mensaje directo en Web para confirmar que opera en la nube
+    if (kIsWeb) {
+      return "Modo Web: Conexión activa y datos operando en tiempo real con Supabase.";
+    }
+
     int totalSubidos = 0;
     List<String> errores = [];
 
@@ -348,7 +367,7 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
   int _pendBins = 0;
   int get _totalPendientes => _pendRecepcion + _pendCalidad + _pendCalibres + _pendEmbolsado + _pendVolcado + _pendBins;
 
-  String _ultimaSinc = "Nunca";
+  String _ultimaSinc = "En tiempo real";
   String usuario = "";
   String rolUsuario = "";
 
@@ -391,10 +410,29 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
   Future<void> _cargarDatosIniciales() async {
     await _actualizarContadorPendientes();
     await _buscarUsuario();
-    _log("Módulo inicializado. Pendientes actuales: $_totalPendientes");
+    if (kIsWeb) {
+      _log("Módulo inicializado en modo Web. Conectado directamente a Supabase.", esExito: true);
+    } else {
+      _log("Módulo inicializado. Pendientes actuales: $_totalPendientes");
+    }
   }
 
   Future<void> _actualizarContadorPendientes() async {
+    // ESTO LO MODIFIQUE: En Web no hay buffer local pendiente
+    if (kIsWeb) {
+      if (mounted) {
+        setState(() {
+          _pendRecepcion = 0;
+          _pendCalidad = 0;
+          _pendCalibres = 0;
+          _pendEmbolsado = 0;
+          _pendVolcado = 0;
+          _pendBins = 0;
+        });
+      }
+      return;
+    }
+
     final db = await DatabaseHelper().database;
 
     final rRec = await db.rawQuery('SELECT COUNT(*) as t FROM celdas_recepcion WHERE sincronizado = 0 OR sincronizado IS NULL');
@@ -417,12 +455,11 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
   }
 
   Future<void> _buscarUsuario() async {
-    final db = await DatabaseHelper().database;
-    final res = await db.query('usuario_local', limit: 1);
-    if (res.isNotEmpty && mounted) {
+    final user = await DatabaseHelper().obtenerUsuarioLocal();
+    if (user != null && mounted) {
       setState(() {
-        usuario = res.first['operario']?.toString() ?? 'Operador';
-        rolUsuario = res.first['rol']?.toString() ?? 'GENERAL';
+        usuario = user['operario']?.toString() ?? 'Operador';
+        rolUsuario = user['rol']?.toString() ?? 'GENERAL';
       });
     }
   }
@@ -453,10 +490,14 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
       _logs.clear();
     });
 
-    _log("--- DESCARGANDO CATÁLOGOS DESDE SUPABASE ---");
+    _log("--- ACTUALIZANDO CATÁLOGOS DESDE SUPABASE ---");
     try {
-      await DatabaseHelper().descargarTodoDesdeSupabase();
-      _log("Catálogos y estructuras descargadas correctamente", esExito: true);
+      if (kIsWeb) {
+        _log("En Web los catálogos se leen en tiempo real de Supabase.", esExito: true);
+      } else {
+        await DatabaseHelper().descargarTodoDesdeSupabase();
+        _log("Catálogos y estructuras descargadas correctamente", esExito: true);
+      }
 
       setState(() => _ultimaSinc = DateFormat('HH:mm').format(DateTime.now()));
       await _actualizarContadorPendientes();
@@ -612,9 +653,9 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("$_totalPendientes Registros por Subir", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kColorText)),
+                Text(kIsWeb ? "Modo Web Online" : "$_totalPendientes Registros por Subir", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kColorText)),
                 const SizedBox(height: 2),
-                Text("Última sinc: $_ultimaSinc", style: const TextStyle(color: kColorTextSecondary, fontSize: 12, fontWeight: FontWeight.w500)),
+                Text(kIsWeb ? "Sincronización automática con Supabase" : "Última sinc: $_ultimaSinc", style: const TextStyle(color: kColorTextSecondary, fontSize: 12, fontWeight: FontWeight.w500)),
               ],
             ),
           ),
