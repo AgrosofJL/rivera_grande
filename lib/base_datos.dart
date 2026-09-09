@@ -1,10 +1,14 @@
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart' as inMemoryDatabaseFactory show openDatabase;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:math';
+
+// ESTO LO MODIFIQUE: Para Web usamos inMemoryDatabaseFactory sin WASM ni Workers raros
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -15,15 +19,26 @@ class DatabaseHelper {
 
   final supabase = Supabase.instance.client;
 
-  // ESTO LO MODIFIQUE: En Web no se inicializa ni se toca sqflite
-  Future<Database?> get database async {
-    if (kIsWeb) return null;
+  // Retorna Database normal (NO nulo) -> Desaparecen los 170 errores de compilación
+  Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
-  Future<Database> _initDatabase() async {
+ Future<Database> _initDatabase() async {
+    // ACA ES LO NUEVO: En Web se usa la fábrica en memoria de sqflite sin getDatabasesPath
+    if (kIsWeb) {
+      return await databaseFactory.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: 12,
+          onCreate: _onCreate,
+        ),
+      );
+    }
+
+    // Para Celulares (Android / iOS)
     String path = join(await getDatabasesPath(), 'la_rivera_celdas.db');
     return await openDatabase(
       path,
