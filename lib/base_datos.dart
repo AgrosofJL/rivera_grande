@@ -1,9 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:math';
-import 'package:flutter/foundation.dart'; // Asegúrate de tener este import para kIsWeb
-import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart'; // Imp
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -21,24 +20,10 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDatabase() async {
-    try {
-      if (kIsWeb) {
-        return await openDatabase(
-          'la_rivera_celdas.db',
-          version: 12,
-          onCreate: _onCreate,
-          onUpgrade: (db, oldVersion, newVersion) async {
-            if (oldVersion < newVersion) {
-              await _onUpgradeDropTables(db);
-              _onCreate(db, newVersion);
-            }
-          },
-        );
-      }
-
-      String path = join(await getDatabasesPath(), 'la_rivera_celdas.db');
+    // ACA ES LO NUEVO: En Web no se usa getDatabasesPath()
+    if (kIsWeb) {
       return await openDatabase(
-        path,
+        'la_rivera_celdas.db',
         version: 12,
         onCreate: _onCreate,
         onUpgrade: (db, oldVersion, newVersion) async {
@@ -48,13 +33,23 @@ class DatabaseHelper {
           }
         },
       );
-    } catch (e) {
-      debugPrint("Error abriendo base de datos SQLite: $e");
-      rethrow;
     }
+
+    // Para Android e iOS
+    String path = join(await getDatabasesPath(), 'la_rivera_celdas.db');
+    return await openDatabase(
+      path,
+      version: 12,
+      onCreate: _onCreate,
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < newVersion) {
+          await _onUpgradeDropTables(db);
+          _onCreate(db, newVersion);
+        }
+      },
+    );
   }
 
-  // Método auxiliar ordenado para el borrado de tablas en actualizaciones
   Future<void> _onUpgradeDropTables(Database db) async {
     await db.execute("DROP TABLE IF EXISTS usuario_local");
     await db.execute("DROP TABLE IF EXISTS celdas_control_calidad_calibre");
@@ -72,6 +67,8 @@ class DatabaseHelper {
     await db.execute("DROP TABLE IF EXISTS parametros_celdas");
     await db.execute("DROP TABLE IF EXISTS parametros_depositos");
   }
+
+  // ... Mantén el resto de métodos tal cual los tienes
 
   Future<void> _onCreate(Database db, int version) async {
     // 1. Sesión Local

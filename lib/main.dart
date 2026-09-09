@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:sqflite/sqflite.dart';
+// ACA ES LO NUEVO: Importación de la fábrica que no requiere Web Worker ni binarios externos
 import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -11,14 +12,9 @@ import 'menu.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ACA ES LO NUEVO: Configuración del worker con la sub-ruta exacta de GitHub Pages
+  // ACA ES LO NUEVO: Sin SharedWorker (funciona directo en GitHub Pages sin errores de script)
   if (kIsWeb) {
-    databaseFactory = createDatabaseFactoryFfiWeb(
-      options: SqfliteFfiWebOptions(
-        sqlite3WasmUri: Uri.parse('sqlite3.wasm'),
-        sharedWorkerUri: Uri.parse('sqflite_sw.js'),
-      ),
-    );
+    databaseFactory = databaseFactoryFfiWebNoWebWorker;
   }
 
   await initializeDateFormatting('es_ES', null);
