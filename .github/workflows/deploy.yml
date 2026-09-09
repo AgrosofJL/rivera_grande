@@ -25,16 +25,8 @@ jobs:
       - name: Instalar dependencias
         run: flutter pub get
 
-      - name: Configurar binarios de SQLite Web
-        run: dart run sqflite_common_ffi_web:setup --force
-
       - name: Compilar Flutter Web
         run: flutter build web --release --base-href "/rivera_grande/"
-
-      - name: Verificar y copiar binarios al build
-        run: |
-          cp -f web/sqflite_sw.js build/web/ || true
-          cp -f web/sqlite3.wasm build/web/ || true
 
       - name: Desplegar a GitHub Pages
         uses: peaceiris/actions-gh-pages@v3

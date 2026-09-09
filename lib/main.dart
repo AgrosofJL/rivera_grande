@@ -1,24 +1,10 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:sqflite/sqflite.dart';
-import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'base_datos.dart';
 import 'logueo.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  if (kIsWeb) {
-    databaseFactory = createDatabaseFactoryFfiWeb(
-      options: SqfliteFfiWebOptions(
-        sqlite3WasmUri: Uri.parse('sqlite3.wasm'),
-        sharedWorkerUri: Uri.parse('sqflite_sw.js'),
-      ),
-    );
-  }
-
   await initializeDateFormatting('es_ES', null);
 
   await Supabase.initialize(
