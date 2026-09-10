@@ -356,3 +356,207 @@ class DatabaseHelper {
     );
   }
 }
+
+// --- SESIÓN ---
+  Future<void> guardarUsuario(Map<String, dynamic> user, dynamic instance) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('sesion_activa', jsonEncode(user));
+
+    if (!kIsWeb) {
+  final db = await instance.database;
+  if (db is Database) {
+    await db.delete('usuarios');
+    await db.insert('usuarios', user);
+  }
+}
+  }
+
+
+  Future<Map<String, dynamic>?> obtenerUsuarioLocal(Future<Object?> database) async {
+    final prefs = await SharedPreferences.getInstance();
+    final sesionStr = prefs.getString('sesion_activa');
+    if (sesionStr != null) {
+      return jsonDecode(sesionStr) as Map<String, dynamic>;
+    }
+    if (!kIsWeb) {
+      final db = await database;
+      if (db is Database) {
+        final res = await db.query('usuario_local');
+        return res.isNotEmpty ? res.first : null;
+      }
+    }
+    return null;
+  }
+
+  Future<void> descargarTodoDesdeSupabase() async {
+    if (kIsWeb) return;
+  }
+
+  String generarIdCorto({int longitud = 8}) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final rnd = Random();
+    return String.fromCharCodes(
+      Iterable.generate(longitud, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))),
+    );
+  }
+
+
+// ============================================================================
+// ACA ES LO NUEVO: Adaptador Web que emula métodos de SQLite consultando Supabase
+// ============================================================================
+class _WebDatabaseAdapter {
+  final SupabaseClient supabase;
+  _WebDatabaseAdapter(this.supabase);
+
+  Future<List<Map<String, dynamic>>> query(
+    String table, {
+    bool? distinct,
+    List<String>? columns,
+    String? where,
+    List<Object?>? whereArgs,
+    String? groupBy,
+    String? having,
+    String? orderBy,
+    int? limit,
+    int? offset,
+  }) async {
+    try {
+      dynamic builder = supabase.from(table).select();
+
+      if (where != null && whereArgs != null && whereArgs.isNotEmpty) {
+        final columna = where.split('=').first.trim();
+        builder = builder.eq(columna, whereArgs.first);
+      }
+
+      if (orderBy != null) {
+        final partes = orderBy.split(' ');
+        final columna = partes[0].trim();
+        final ascendente = partes.length > 1 ? partes[1].toUpperCase() == 'ASC' : true;
+        builder = builder.order(columna, ascending: ascendente);
+      }
+
+      if (limit != null) {
+        builder = builder.limit(limit);
+      }
+
+      final res = await builder;
+      return List<Map<String, dynamic>>.from(res);
+    } catch (e) {
+      debugPrint("Error query Web en $table: $e");
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> rawQuery(String sql, [List<Object?>? arguments]) async {
+    try {
+      // Caso 1: Lectura principal de celdas con cruce de calidad y calibres
+      if (sql.contains('celdas_recepcion') && sql.contains('celdas_control_calidad_calibre')) {
+        final recepcion = await supabase.from('celdas_recepcion').select();
+        final calibres = await supabase.from('celdas_control_calidad_calibre').select();
+        final calidades = await supabase.from('control_calidad').select();
+
+        final List<Map<String, dynamic>> listaCombinada = [];
+
+        for (var r in recepcion) {
+          final lote = r['lote_proceso'];
+          final c = calibres.firstWhere((item) => item['lote_proceso'] == lote, orElse: () => {});
+          final cc = calidades.firstWhere((item) => item['lote_proceso'] == lote, orElse: () => {});
+
+          listaCombinada.add({
+            'reg_local': r['reg_local'],
+            'fecha_reg': r['fecha_reg'],
+            'hora': r['hora'],
+            'cod_celda': r['cod_celda'],
+            'cuadro': r['cuadro'],
+            'productor': r['productor'],
+            'cultivo': r['cultivo'],
+            'variedad': r['variedad'],
+            'lote_proceso': r['lote_proceso'],
+            'estado': r['estado'] ?? 'ACTIVO',
+            'calidad_final': c['calidad_final'],
+            'cal1': c['cal1'],
+            'nro_1': c['nro_1'],
+            'cal2': c['cal2'],
+            'nro_2': c['nro_2'],
+            'cal3': c['cal3'],
+            'nro_3': c['nro_3'],
+            'cal4': c['cal4'],
+            'nro_4': c['nro_4'],
+            'establecimiento': cc['establecimiento'],
+          });
+        }
+
+        // Orden de prioridad: ACTIVO -> PASIVO -> OTROS
+        listaCombinada.sort((a, b) {
+          int getPrioridad(String? est) {
+            final e = (est ?? '').toUpperCase();
+            if (e == 'ACTIVO') return 1;
+            if (e == 'PASIVO') return 2;
+            return 3;
+          }
+
+          int comp = getPrioridad(a['estado']).compareTo(getPrioridad(b['estado']));
+          if (comp != 0) return comp;
+          return (b['fecha_reg'] ?? '').toString().compareTo((a['fecha_reg'] ?? '').toString());
+        });
+
+        return listaCombinada;
+      }
+
+      // Caso 2: Conteo de pendientes
+      if (sql.toUpperCase().contains('COUNT(*)')) {
+        return [{'t': 0}];
+      }
+
+      return [];
+    } catch (e) {
+      debugPrint("Error rawQuery Web: $e");
+      return [];
+    }
+  }
+
+  Future<int> insert(String table, Map<String, dynamic> values, {String? nullColumnHack, ConflictAlgorithm? conflictAlgorithm}) async {
+    try {
+      final payload = Map<String, dynamic>.from(values);
+      payload.remove('sincronizado');
+      await supabase.from(table).upsert(payload);
+      return 1;
+    } catch (e) {
+      debugPrint("Error insert Web en $table: $e");
+      return 0;
+    }
+  }
+
+  Future<int> update(String table, Map<String, dynamic> values, {String? where, List<Object?>? whereArgs, ConflictAlgorithm? conflictAlgorithm}) async {
+    try {
+      final payload = Map<String, dynamic>.from(values);
+      payload.remove('sincronizado');
+      
+      dynamic builder = supabase.from(table).update(payload);
+      if (where != null && whereArgs != null && whereArgs.isNotEmpty) {
+        final columna = where.split('=').first.trim();
+        builder = builder.eq(columna, whereArgs.first);
+      }
+      await builder;
+      return 1;
+    } catch (e) {
+      debugPrint("Error update Web en $table: $e");
+      return 0;
+    }
+  }
+
+  Future<int> delete(String table, {String? where, List<Object?>? whereArgs}) async {
+    try {
+      dynamic builder = supabase.from(table).delete();
+      if (where != null && whereArgs != null && whereArgs.isNotEmpty) {
+        final columna = where.split('=').first.trim();
+        builder = builder.eq(columna, whereArgs.first);
+      }
+      await builder;
+      return 1;
+    } catch (e) {
+      debugPrint("Error delete Web en $table: $e");
+      return 0;
+    }
+  }
+}
