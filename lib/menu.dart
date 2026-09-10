@@ -80,55 +80,98 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
     }
   }
 
-  Future<void> _sincronizarTodo() async {
-    setState(() => _isSyncing = true);
-    try {
-      final resultado = await PaginaSincronizar.sincronizarTodo(usuario: usuario?['operario']);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
+  // ACA ES LO NUEVO: Notificación Toast flotante estilo Apple Soft (de campo.js)
+  void _notificarApple({required String mensaje, required bool esExito}) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        elevation: 0,
+        backgroundColor: Colors.transparent,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(bottom: 25, left: 20, right: 20),
+        content: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 520),
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: esExito ? kColorPlant.withOpacity(0.35) : kColorDanger.withOpacity(0.35),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: esExito ? kColorPlantSoft : const Color(0x1AC0483C),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: esExito ? kColorPlant : kColorDanger,
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Center(
+                    child: Icon(
+                      esExito ? Icons.check_rounded : Icons.priority_high_rounded,
+                      size: 16,
+                      color: esExito ? kColorPlantDark : kColorDanger,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Flexible(
                   child: Text(
-                    resultado,
-                    style: const TextStyle(fontFamily: 'Roboto', fontWeight: FontWeight.w600, fontSize: 12.5),
+                    mensaje,
+                    style: const TextStyle(
+                      fontFamily: 'Roboto',
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: kColorText,
+                      letterSpacing: 0.2,
+                    ),
                   ),
                 ),
               ],
             ),
-            backgroundColor: kColorPlant,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            elevation: 4,
           ),
+        ),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  // ACA ES LO NUEVO: Sincronización in-situ sin salir de la pantalla
+  Future<void> _ejecutarSincronizacionDirecta() async {
+    if (_isSyncing) return;
+    setState(() => _isSyncing = true);
+
+    try {
+      final resultado = await PaginaSincronizar.sincronizarTodo(usuario: usuario?['operario']);
+
+      if (mounted) {
+        _notificarApple(
+          mensaje: resultado,
+          esExito: true,
         );
         _cargarKpisEnVivo();
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.error_outline_rounded, color: Colors.white, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    "Error de sincronización: $e",
-                    style: const TextStyle(fontFamily: 'Roboto', fontSize: 12.5),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: kColorDanger,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            elevation: 4,
-          ),
+        _notificarApple(
+          mensaje: "Fallo en sincronización: $e",
+          esExito: false,
         );
       }
     } finally {
@@ -248,14 +291,9 @@ class _MenuPrincipalState extends State<MenuPrincipal> {
                     ),
                   ),
 
-                  // BOTÓN DE SYNC SUPERIOR DERECHO
+                  // BOTÓN SYNC: SIN REDIRECCIÓN, SINCRONIZACIÓN IN-SITU DIRECTA
                   InkWell(
-                    onTap: _isSyncing
-                        ? null
-                        : () => Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (context) => const PaginaSincronizar()),
-                            ).then((_) => _cargarKpisEnVivo()),
+                    onTap: _isSyncing ? null : _ejecutarSincronizacionDirecta,
                     borderRadius: BorderRadius.circular(10),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
