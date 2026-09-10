@@ -1,20 +1,20 @@
-import 'package:flutter/foundation.dart'; // ACA ES LO NUEVO: Necesario para kIsWeb
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'base_datos.dart';
 import 'package:intl/intl.dart';
 
-// TOKENS DE DISEÑO AGROSOFT
-const Color kColorBg = Color(0xFFF3F5F1);
+// TOKENS DE DISEÑO AGROSOFT - ESTILO APPLE SOFT CAMPO.JS
+const Color kColorBg = Color(0xFFF5F4F1);
 const Color kColorSurface = Color(0xFFFFFFFF);
-const Color kColorText = Color(0xFF1B231D);
-const Color kColorTextSecondary = Color(0xFF5F6B62);
+const Color kColorText = Color(0xFF211C16);
+const Color kColorTextSecondary = Color(0xFF6B6255);
 const Color kColorAccent = Color(0xFF1E6B4C);
 const Color kColorAccentDark = Color(0xFF123F2C);
-const Color kColorAccentSoft = Color(0x1A1E6B4C);
+const Color kColorAccentSoft = Color(0x1A1E6B4C); // 10%
 const Color kColorDanger = Color(0xFFC0483C);
 const Color kColorDangerSoft = Color(0x1FC0483C);
-const Color kColorBorder = Color(0x1F1B231D);
+const Color kColorBorder = Color(0xFFE0DCD4);
 
 class PaginaSincronizar extends StatefulWidget {
   const PaginaSincronizar({super.key});
@@ -26,15 +26,16 @@ class PaginaSincronizar extends StatefulWidget {
   // 1. SUBIDA PUNTUAL DE CELDAS Y CALIDAD
   // =======================================================================
   static Future<int> sincronizarCeldas({String? usuario}) async {
-    // ESTO LO MODIFIQUE: En Web no hay buffer local SQLite
     if (kIsWeb) return 0;
 
-    final db = await DatabaseHelper().database;
+    final dynamic db = await DatabaseHelper().database;
     final supabase = Supabase.instance.client;
     int subidos = 0;
 
-    // A. celdas_recepcion
-    final celdas = await db.query('celdas_recepcion', where: 'sincronizado = 0 OR sincronizado IS NULL');
+    // ESTO LO MODIFIQUE: Tipado explicito para evitar error con subidos += length
+    final List<Map<String, dynamic>> celdas = List<Map<String, dynamic>>.from(
+      await db.query('celdas_recepcion', where: 'sincronizado = 0 OR sincronizado IS NULL')
+    );
     if (celdas.isNotEmpty) {
       final payload = celdas.map((e) => {
         'reg_local': e['reg_local'],
@@ -55,8 +56,9 @@ class PaginaSincronizar extends StatefulWidget {
       subidos += celdas.length;
     }
 
-    // B. control_calidad
-    final calidad = await db.query('control_calidad', where: 'sincronizado = 0 OR sincronizado IS NULL');
+    final List<Map<String, dynamic>> calidad = List<Map<String, dynamic>>.from(
+      await db.query('control_calidad', where: 'sincronizado = 0 OR sincronizado IS NULL')
+    );
     if (calidad.isNotEmpty) {
       final payload = calidad.map((e) => {
         'reg_local': e['reg_local'],
@@ -80,8 +82,9 @@ class PaginaSincronizar extends StatefulWidget {
       subidos += calidad.length;
     }
 
-    // C. celdas_control_calidad_calibre
-    final calibres = await db.query('celdas_control_calidad_calibre', where: 'sincronizado = 0 OR sincronizado IS NULL');
+    final List<Map<String, dynamic>> calibres = List<Map<String, dynamic>>.from(
+      await db.query('celdas_control_calidad_calibre', where: 'sincronizado = 0 OR sincronizado IS NULL')
+    );
     if (calibres.isNotEmpty) {
       final payload = calibres.map((e) => {
         'reg_local': e['reg_local'],
@@ -118,13 +121,14 @@ class PaginaSincronizar extends StatefulWidget {
   // 2. SUBIDA PUNTUAL DE EMBOLSADO DE BIG BAGS
   // =======================================================================
   static Future<int> sincronizarBag() async {
-    // ESTO LO MODIFIQUE: En Web no hay buffer local SQLite
     if (kIsWeb) return 0;
 
-    final db = await DatabaseHelper().database;
+    final dynamic db = await DatabaseHelper().database;
     final supabase = Supabase.instance.client;
 
-    final embolsado = await db.query('embolsado_bag', where: 'sincronizado = 0 OR sincronizado IS NULL');
+    final List<Map<String, dynamic>> embolsado = List<Map<String, dynamic>>.from(
+      await db.query('embolsado_bag', where: 'sincronizado = 0 OR sincronizado IS NULL')
+    );
     if (embolsado.isNotEmpty) {
       final payload = embolsado.map((e) => {
         'reg_local': e['reg_local'],
@@ -154,18 +158,16 @@ class PaginaSincronizar extends StatefulWidget {
   }
 
   // =======================================================================
-  // SUBIDA PUNTUAL EXCLUSIVA DE CELDAS RECEPCIÓN
+  // 3. SUBIDA PUNTUAL DE RECEPCIÓN EXCLUSIVA
   // =======================================================================
   static Future<int> sincronizarRecepcion() async {
-    // ESTO LO MODIFIQUE: En Web no hay buffer local SQLite
     if (kIsWeb) return 0;
 
-    final db = await DatabaseHelper().database;
+    final dynamic db = await DatabaseHelper().database;
     final supabase = Supabase.instance.client;
 
-    final celdas = await db.query(
-      'celdas_recepcion',
-      where: 'sincronizado = 0 OR sincronizado IS NULL',
+    final List<Map<String, dynamic>> celdas = List<Map<String, dynamic>>.from(
+      await db.query('celdas_recepcion', where: 'sincronizado = 0 OR sincronizado IS NULL')
     );
 
     if (celdas.isNotEmpty) {
@@ -183,36 +185,28 @@ class PaginaSincronizar extends StatefulWidget {
         'estado': e['estado'] ?? 'ACTIVO',
       }).toList();
 
-      await supabase.from('celdas_recepcion').upsert(
-        payload,
-        onConflict: 'reg_local',
-      );
-
-      await db.update(
-        'celdas_recepcion',
-        {'sincronizado': 1},
-        where: 'sincronizado = 0 OR sincronizado IS NULL',
-      );
-
+      await supabase.from('celdas_recepcion').upsert(payload, onConflict: 'reg_local');
+      await db.update('celdas_recepcion', {'sincronizado': 1}, where: 'sincronizado = 0 OR sincronizado IS NULL');
       return celdas.length;
     }
     return 0;
   }
 
   // =======================================================================
-  // 3. SUBIDA PUNTUAL DE VOLCADO DE BIG BAGS
+  // 4. SUBIDA PUNTUAL DE VOLCADO DE BIG BAGS
   // =======================================================================
   static Future<int> sincronizarVolcadoBag() async {
-    // ESTO LO MODIFIQUE: En Web no hay buffer local SQLite
     if (kIsWeb) return 0;
 
-    final db = await DatabaseHelper().database;
+    final dynamic db = await DatabaseHelper().database;
     final supabase = Supabase.instance.client;
     int subidos = 0;
 
     subidos += await sincronizarBag();
 
-    final volcados = await db.query('volcado_bag', where: 'sincronizado = 0 OR sincronizado IS NULL');
+    final List<Map<String, dynamic>> volcados = List<Map<String, dynamic>>.from(
+      await db.query('volcado_bag', where: 'sincronizado = 0 OR sincronizado IS NULL')
+    );
     if (volcados.isNotEmpty) {
       final payload = volcados.map((e) => {
         'reg_local': e['reg_local'],
@@ -240,18 +234,18 @@ class PaginaSincronizar extends StatefulWidget {
   }
 
   // =======================================================================
-  // 4. SUBIDA PUNTUAL DE BINS Y VOLCADO DE BINS
+  // 5. SUBIDA PUNTUAL DE BINS Y VOLCADO DE BINS
   // =======================================================================
   static Future<int> sincronizarBins() async {
-    // ESTO LO MODIFIQUE: En Web no hay buffer local SQLite
     if (kIsWeb) return 0;
 
-    final db = await DatabaseHelper().database;
+    final dynamic db = await DatabaseHelper().database;
     final supabase = Supabase.instance.client;
     int subidos = 0;
 
-    // A. empaque_armado_bins
-    final empaque = await db.query('empaque_armado_bins', where: 'sincronizado = 0 OR sincronizado IS NULL');
+    final List<Map<String, dynamic>> empaque = List<Map<String, dynamic>>.from(
+      await db.query('empaque_armado_bins', where: 'sincronizado = 0 OR sincronizado IS NULL')
+    );
     if (empaque.isNotEmpty) {
       final payload = empaque.map((e) => {
         'reg_local': e['reg_local'],
@@ -280,8 +274,9 @@ class PaginaSincronizar extends StatefulWidget {
       subidos += empaque.length;
     }
 
-    // B. volcado_bins
-    final volcadosBins = await db.query('volcado_bins', where: 'sincronizado = 0 OR sincronizado IS NULL');
+    final List<Map<String, dynamic>> volcadosBins = List<Map<String, dynamic>>.from(
+      await db.query('volcado_bins', where: 'sincronizado = 0 OR sincronizado IS NULL')
+    );
     if (volcadosBins.isNotEmpty) {
       final payload = volcadosBins.map((e) => {
         'reg_local': e['reg_local'],
@@ -305,13 +300,13 @@ class PaginaSincronizar extends StatefulWidget {
     return subidos;
   }
 
+
   // =======================================================================
-  // MOTOR UNIFICADO: PUSH COMPLETO + PULL DE CATÁLOGOS
+  // MOTOR UNIFICADO: PUSH + PULL DE PARÁMETROS
   // =======================================================================
   static Future<String> sincronizarTodo({String? usuario}) async {
-    // ACA ES LO NUEVO: Mensaje directo en Web para confirmar que opera en la nube
     if (kIsWeb) {
-      return "Modo Web: Conexión activa y datos operando en tiempo real con Supabase.";
+      return "Modo Web: Conexión activa y datos sincronizados en tiempo real con Supabase.";
     }
 
     int totalSubidos = 0;
@@ -418,7 +413,6 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
   }
 
   Future<void> _actualizarContadorPendientes() async {
-    // ESTO LO MODIFIQUE: En Web no hay buffer local pendiente
     if (kIsWeb) {
       if (mounted) {
         setState(() {
@@ -517,7 +511,7 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
         child: Container(
           decoration: const BoxDecoration(
             color: kColorSurface,
-            border: Border(bottom: BorderSide(color: kColorBorder, width: 1)),
+            border: Border(bottom: BorderSide(color: kColorBorder, width: 1.5)),
           ),
           child: SafeArea(
             child: Padding(
@@ -526,19 +520,19 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
                 children: [
                   InkWell(
                     onTap: () => Navigator.pop(context),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
                         color: kColorSurface,
-                        border: Border.all(color: kColorBorder),
-                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: kColorBorder, width: 1.2),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Row(
                         children: [
-                          Icon(Icons.arrow_back_ios_new_rounded, size: 14, color: kColorTextSecondary),
+                          Icon(Icons.arrow_back_ios_new_rounded, size: 13, color: kColorTextSecondary),
                           SizedBox(width: 4),
-                          Text("VOLVER", style: TextStyle(fontFamily: 'Roboto', fontSize: 11.5, fontWeight: FontWeight.w700, color: kColorTextSecondary)),
+                          Text("VOLVER", style: TextStyle(fontFamily: 'Roboto', fontSize: 11, fontWeight: FontWeight.w800, color: kColorTextSecondary)),
                         ],
                       ),
                     ),
@@ -549,7 +543,7 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Text("CENTRO DE DATOS Y LOGS", style: TextStyle(fontFamily: 'Roboto', fontWeight: FontWeight.w700, fontSize: 15, color: kColorText)),
+                        Text("CENTRO DE DATOS Y SINCRONIZACIÓN", style: TextStyle(fontFamily: 'Roboto', fontWeight: FontWeight.w800, fontSize: 14, color: kColorText)),
                         Text("Sincronizador Bidireccional SQLite - Supabase", style: TextStyle(fontFamily: 'Roboto', fontSize: 11, color: kColorTextSecondary, fontWeight: FontWeight.w500)),
                       ],
                     ),
@@ -587,7 +581,7 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
                   child: _buildBotonAccionCompacto(
                     titulo: "DESCARGAR (PULL)",
                     icono: Icons.cloud_download_rounded,
-                    color: const Color(0xFF007AFF),
+                    color: const Color(0xFF1E6B4C),
                     enProgreso: _isSyncing,
                     onTap: _ejecutarDescargaParametros,
                   ),
@@ -599,7 +593,7 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text("TERMINAL DE EVENTOS Y DIAGNÓSTICO", style: TextStyle(fontFamily: 'Roboto', fontWeight: FontWeight.w700, fontSize: 11.5, color: kColorTextSecondary, letterSpacing: 0.5)),
+                const Text("TERMINAL DE EVENTOS Y DIAGNÓSTICO", style: TextStyle(fontFamily: 'Roboto', fontWeight: FontWeight.w800, fontSize: 11, color: kColorTextSecondary, letterSpacing: 0.4)),
                 if (_logs.isNotEmpty)
                   InkWell(
                     onTap: () => setState(() => _logs.clear()),
@@ -617,9 +611,9 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
                 decoration: BoxDecoration(
                   color: kColorSurface,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: kColorBorder),
+                  border: Border.all(color: kColorBorder, width: 1.2),
                 ),
-                child: Text("Operador Activo: ${usuario.isEmpty ? '...' : usuario} ($rolUsuario)", style: const TextStyle(color: kColorTextSecondary, fontWeight: FontWeight.w600, fontSize: 11.5)),
+                child: Text("Operador Activo: ${usuario.isEmpty ? '...' : usuario} ($rolUsuario)", style: const TextStyle(fontFamily: 'Roboto', color: kColorTextSecondary, fontWeight: FontWeight.w700, fontSize: 11)),
               ),
             ),
             const SizedBox(height: 30),
@@ -634,28 +628,38 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: kColorSurface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: kColorBorder),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: kColorBorder, width: 1.5),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 6, offset: const Offset(0, 2)),
+        ],
       ),
       child: Row(
         children: [
           Container(
-            width: 46,
-            height: 46,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
               color: kColorAccentSoft,
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: kColorAccent.withOpacity(0.25)),
             ),
-            child: const Icon(Icons.storage_rounded, size: 24, color: kColorAccent),
+            child: const Icon(Icons.storage_rounded, size: 22, color: kColorAccent),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(kIsWeb ? "Modo Web Online" : "$_totalPendientes Registros por Subir", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: kColorText)),
+                Text(
+                  kIsWeb ? "Modo Web Online" : "$_totalPendientes Registros por Subir",
+                  style: const TextStyle(fontFamily: 'Roboto', fontSize: 16, fontWeight: FontWeight.w800, color: kColorText),
+                ),
                 const SizedBox(height: 2),
-                Text(kIsWeb ? "Sincronización automática con Supabase" : "Última sinc: $_ultimaSinc", style: const TextStyle(color: kColorTextSecondary, fontSize: 12, fontWeight: FontWeight.w500)),
+                Text(
+                  kIsWeb ? "Sincronización automática con Supabase" : "Última sinc: $_ultimaSinc",
+                  style: const TextStyle(fontFamily: 'Roboto', color: kColorTextSecondary, fontSize: 11.5, fontWeight: FontWeight.w500),
+                ),
               ],
             ),
           ),
@@ -690,13 +694,21 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
         decoration: BoxDecoration(
           color: kColorSurface,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: tienePendientes ? kColorAccent.withOpacity(0.4) : kColorBorder),
+          border: Border.all(color: tienePendientes ? kColorAccent.withOpacity(0.5) : kColorBorder, width: 1.2),
         ),
         child: Column(
           children: [
-            Text("$cantidad", style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5, color: tienePendientes ? kColorAccentDark : kColorTextSecondary)),
+            Text(
+              "$cantidad",
+              style: TextStyle(fontFamily: 'Roboto', fontWeight: FontWeight.w800, fontSize: 13, color: tienePendientes ? kColorAccentDark : kColorTextSecondary),
+            ),
             const SizedBox(height: 1),
-            Text(titulo, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 9, color: kColorTextSecondary, fontWeight: FontWeight.w600)),
+            Text(
+              titulo,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontFamily: 'Roboto', fontSize: 9, color: kColorTextSecondary, fontWeight: FontWeight.w700),
+            ),
           ],
         ),
       ),
@@ -705,12 +717,22 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
 
   Widget _buildBotonAccionCompacto({required String titulo, required IconData icono, required Color color, required bool enProgreso, required VoidCallback onTap}) {
     return SizedBox(
-      height: 48,
+      height: 46,
       child: ElevatedButton.icon(
-        style: ElevatedButton.styleFrom(backgroundColor: color, foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
         onPressed: enProgreso ? null : onTap,
-        icon: enProgreso ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Icon(icono, size: 18),
-        label: Text(titulo, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, letterSpacing: 0.3)),
+        icon: enProgreso
+            ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+            : Icon(icono, size: 17),
+        label: Text(
+          titulo,
+          style: const TextStyle(fontFamily: 'Roboto', fontWeight: FontWeight.w700, fontSize: 11.5, letterSpacing: 0.3),
+        ),
       ),
     );
   }
@@ -722,11 +744,11 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFF141916),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.black),
       ),
       child: _logs.isEmpty
-          ? const Center(child: Text("Presiona 'SUBIR DATOS' para sincronizar...", style: TextStyle(color: Colors.white38, fontSize: 12, fontFamily: 'monospace')))
+          ? const Center(child: Text("Presiona 'SUBIR DATOS' para sincronizar...", style: TextStyle(color: Colors.white38, fontSize: 11.5, fontFamily: 'monospace')))
           : ListView.builder(
               controller: _logScrollController,
               itemCount: _logs.length,
@@ -738,7 +760,7 @@ class _PaginaSincronizarState extends State<PaginaSincronizar> {
 
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 2.0),
-                  child: Text(log, style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: colorTexto, height: 1.3)),
+                  child: Text(log, style: TextStyle(fontFamily: 'monospace', fontSize: 10.5, color: colorTexto, height: 1.3)),
                 );
               },
             ),

@@ -1,14 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart' as inMemoryDatabaseFactory show openDatabase;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'dart:math';
-
-// ESTO LO MODIFIQUE: Para Web usamos inMemoryDatabaseFactory sin WASM ni Workers raros
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -19,26 +15,17 @@ class DatabaseHelper {
 
   final supabase = Supabase.instance.client;
 
-  // Retorna Database normal (NO nulo) -> Desaparecen los 170 errores de compilación
-  Future<Database> get database async {
+  // ACA ES LO NUEVO: Retorna _WebDatabaseAdapter en Web o Database en plataformas móviles
+  Future<dynamic> get database async {
+    if (kIsWeb) {
+      return _WebDatabaseAdapter(supabase);
+    }
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
- Future<Database> _initDatabase() async {
-    // ACA ES LO NUEVO: En Web se usa la fábrica en memoria de sqflite sin getDatabasesPath
-    if (kIsWeb) {
-      return await databaseFactory.openDatabase(
-        inMemoryDatabasePath,
-        options: OpenDatabaseOptions(
-          version: 12,
-          onCreate: _onCreate,
-        ),
-      );
-    }
-
-    // Para Celulares (Android / iOS)
+  Future<Database> _initDatabase() async {
     String path = join(await getDatabasesPath(), 'la_rivera_celdas.db');
     return await openDatabase(
       path,
@@ -169,17 +156,14 @@ class DatabaseHelper {
   }
 
   // --- MÉTODOS DE SESIÓN ---
-  // ESTO LO MODIFIQUE: Soporte multiplataforma con SharedPreferences y SQLite
   Future<void> guardarUsuario(Map<String, dynamic> user) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('sesion_activa', jsonEncode(user));
 
     if (!kIsWeb) {
-      final db = await database;
-      if (db != null) {
-        await db.delete('usuario_local');
-        await db.insert('usuario_local', user);
-      }
+      final db = await _initDatabase();
+      await db.delete('usuario_local');
+      await db.insert('usuario_local', user);
     }
   }
 
@@ -192,7 +176,7 @@ class DatabaseHelper {
 
     if (!kIsWeb) {
       final db = await database;
-      if (db != null) {
+      if (db is Database) {
         final res = await db.query('usuario_local');
         return res.isNotEmpty ? res.first : null;
       }
@@ -201,18 +185,15 @@ class DatabaseHelper {
   }
 
   // --- DESCARGA (PULL) DESDE SUPABASE ---
-  // ESTO LO MODIFIQUE: En Web se omite porque la app trabaja online en tiempo real
   Future<void> descargarTodoDesdeSupabase() async {
     if (kIsWeb) return;
 
-    // 1. Catálogos
     await _descargarTablaServidor('inventario', esParametroPuro: true);
     await _descargarTablaServidor('parametros_calibre', esParametroPuro: true);
     await _descargarTablaServidor('parametros_calidad', esParametroPuro: true);
     await _descargarTablaServidor('parametros_celdas', esParametroPuro: true);
     await _descargarTablaServidor('parametros_depositos', esParametroPuro: true);
 
-    // 2. Operativas
     await _descargarTablaServidor('celdas_control_calidad_calibre', esParametroPuro: false);
     await _descargarTablaServidor('celdas_historial', esParametroPuro: false);
     await _descargarTablaServidor('celdas_recepcion', esParametroPuro: false);
@@ -226,7 +207,7 @@ class DatabaseHelper {
 
   Future<void> _descargarTablaServidor(String nombreTabla, {required bool esParametroPuro}) async {
     final db = await database;
-    if (db == null) return;
+    if (db == null || db is! Database) return;
 
     try {
       final datos = await supabase.from(nombreTabla).select();
@@ -270,7 +251,7 @@ class DatabaseHelper {
     }
   }
 
-  // ACA ES LO NUEVO: 1. Busca el último ciclo ACTIVO de un Big Bag físico
+  // --- GESTIÓN DE CICLOS QR ---
   Future<Map<String, dynamic>?> obtenerBolsonActivoPorQR(String qrCodigo) async {
     if (kIsWeb) {
       final res = await supabase
@@ -285,7 +266,7 @@ class DatabaseHelper {
     }
 
     final db = await database;
-    if (db == null) return null;
+    if (db == null || db is! Database) return null;
     final List<Map<String, dynamic>> res = await db.query(
       'embolsado_bag',
       where: 'cod_bigbag = ? AND (estado != \'VOLCADO\' AND estado != \'INACTIVO\' OR estado IS NULL)',
@@ -295,7 +276,6 @@ class DatabaseHelper {
     return res.isNotEmpty ? res.first : null;
   }
 
-  // ACA ES LO NUEVO: 2. Busca el último ciclo ACTIVO de un Bin físico
   Future<Map<String, dynamic>?> obtenerBinActivoPorQR(String qrCodigo) async {
     if (kIsWeb) {
       final res = await supabase
@@ -310,7 +290,7 @@ class DatabaseHelper {
     }
 
     final db = await database;
-    if (db == null) return null;
+    if (db == null || db is! Database) return null;
     final List<Map<String, dynamic>> res = await db.query(
       'empaque_armado_bins',
       where: 'cod_bin = ? AND (estado != \'VOLCADO\' AND estado != \'INACTIVO\' OR estado IS NULL)',
@@ -320,7 +300,6 @@ class DatabaseHelper {
     return res.isNotEmpty ? res.first : null;
   }
 
-  // ACA ES LO NUEVO: 3. Libera ciclos viejos si se reutiliza el QR para un nuevo llenado consecutivo
   Future<void> cerrarCicloPrevioQR({
     required dynamic db,
     required String nombreTabla,
@@ -357,56 +336,17 @@ class DatabaseHelper {
   }
 }
 
-// --- SESIÓN ---
-  Future<void> guardarUsuario(Map<String, dynamic> user, dynamic instance) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('sesion_activa', jsonEncode(user));
-
-    if (!kIsWeb) {
-  final db = await instance.database;
-  if (db is Database) {
-    await db.delete('usuarios');
-    await db.insert('usuarios', user);
-  }
-}
-  }
-
-
-  Future<Map<String, dynamic>?> obtenerUsuarioLocal(Future<Object?> database) async {
-    final prefs = await SharedPreferences.getInstance();
-    final sesionStr = prefs.getString('sesion_activa');
-    if (sesionStr != null) {
-      return jsonDecode(sesionStr) as Map<String, dynamic>;
-    }
-    if (!kIsWeb) {
-      final db = await database;
-      if (db is Database) {
-        final res = await db.query('usuario_local');
-        return res.isNotEmpty ? res.first : null;
-      }
-    }
-    return null;
-  }
-
-  Future<void> descargarTodoDesdeSupabase() async {
-    if (kIsWeb) return;
-  }
-
-  String generarIdCorto({int longitud = 8}) {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final rnd = Random();
-    return String.fromCharCodes(
-      Iterable.generate(longitud, (_) => chars.codeUnitAt(rnd.nextInt(chars.length))),
-    );
-  }
-
-
 // ============================================================================
-// ACA ES LO NUEVO: Adaptador Web que emula métodos de SQLite consultando Supabase
+// ADAPTADOR WEB CON SOPORTE DE QUERIES, RAWQUERY Y TRANSACCIONES PARA SUPABASE
 // ============================================================================
 class _WebDatabaseAdapter {
   final SupabaseClient supabase;
   _WebDatabaseAdapter(this.supabase);
+
+  // ESTO LO MODIFIQUE: Soporte de db.transaction para operaciones atómicas en web
+  Future<T> transaction<T>(Future<T> Function(dynamic txn) action) async {
+    return await action(this);
+  }
 
   Future<List<Map<String, dynamic>>> query(
     String table, {
@@ -423,16 +363,41 @@ class _WebDatabaseAdapter {
     try {
       dynamic builder = supabase.from(table).select();
 
-      if (where != null && whereArgs != null && whereArgs.isNotEmpty) {
-        final columna = where.split('=').first.trim();
-        builder = builder.eq(columna, whereArgs.first);
+      if (where != null) {
+        String w = where;
+        if (whereArgs != null && whereArgs.isNotEmpty) {
+          int argIdx = 0;
+          w = w.replaceAllMapped(RegExp(r'\?'), (_) {
+            if (argIdx < whereArgs.length) {
+              final val = whereArgs[argIdx++];
+              return val == null ? 'NULL' : "'$val'";
+            }
+            return '?';
+          });
+        }
+
+        // Casos estándar de filtrado
+        if (w.contains('=')) {
+          final partes = w.split('=');
+          final columna = partes[0].trim();
+          final valor = partes[1].replaceAll("'", "").trim();
+          builder = builder.eq(columna, valor);
+        } else if (w.contains('!=')) {
+          final partes = w.split('!=');
+          final columna = partes[0].trim();
+          final valor = partes[1].replaceAll("'", "").trim();
+          builder = builder.neq(columna, valor);
+        }
       }
 
       if (orderBy != null) {
-        final partes = orderBy.split(' ');
-        final columna = partes[0].trim();
-        final ascendente = partes.length > 1 ? partes[1].toUpperCase() == 'ASC' : true;
-        builder = builder.order(columna, ascending: ascendente);
+        final partes = orderBy.split(',');
+        for (var p in partes) {
+          final tokens = p.trim().split(' ');
+          final col = tokens[0].trim();
+          final asc = tokens.length > 1 ? tokens[1].toUpperCase() == 'ASC' : true;
+          builder = builder.order(col, ascending: asc);
+        }
       }
 
       if (limit != null) {
@@ -449,8 +414,8 @@ class _WebDatabaseAdapter {
 
   Future<List<Map<String, dynamic>>> rawQuery(String sql, [List<Object?>? arguments]) async {
     try {
-      // Caso 1: Lectura principal de celdas con cruce de calidad y calibres
-      if (sql.contains('celdas_recepcion') && sql.contains('celdas_control_calidad_calibre')) {
+      // 1. Cruce completo de recepciones, calidades y calibres para Celdas y Calidad
+      if (sql.contains('celdas_recepcion') && (sql.contains('celdas_control_calidad_calibre') || sql.contains('control_calidad'))) {
         final recepcion = await supabase.from('celdas_recepcion').select();
         final calibres = await supabase.from('celdas_control_calidad_calibre').select();
         final calidades = await supabase.from('control_calidad').select();
@@ -460,7 +425,7 @@ class _WebDatabaseAdapter {
         for (var r in recepcion) {
           final lote = r['lote_proceso'];
           final c = calibres.firstWhere((item) => item['lote_proceso'] == lote, orElse: () => {});
-          final cc = calidades.firstWhere((item) => item['lote_proceso'] == lote, orElse: () => {});
+          final cc = calidades.firstWhere((item) => item['lote_proceso'] == lote || item['reg_celda'] == r['reg_local'], orElse: () => {});
 
           listaCombinada.add({
             'reg_local': r['reg_local'],
@@ -486,6 +451,13 @@ class _WebDatabaseAdapter {
           });
         }
 
+        // Filtro por estado si lo pide la query
+        if (sql.contains("r.estado = 'ACTIVO'")) {
+          listaCombinada.removeWhere((item) => (item['estado'] ?? '').toString().toUpperCase() != 'ACTIVO');
+        } else if (sql.contains("r.estado = 'PASIVO'")) {
+          listaCombinada.removeWhere((item) => (item['estado'] ?? '').toString().toUpperCase() != 'PASIVO');
+        }
+
         // Orden de prioridad: ACTIVO -> PASIVO -> OTROS
         listaCombinada.sort((a, b) {
           int getPrioridad(String? est) {
@@ -503,9 +475,56 @@ class _WebDatabaseAdapter {
         return listaCombinada;
       }
 
-      // Caso 2: Conteo de pendientes
+      // 2. Acumulados de peso por fecha en Bins (Archivero)
+      if (sql.contains('empaque_armado_bins') && sql.contains('fecha_grupo')) {
+        final bins = await supabase.from('empaque_armado_bins').select();
+        final Map<String, Map<String, dynamic>> grupos = {};
+
+        for (var b in bins) {
+          final fecha = (b['fecha_emb'] ?? b['fecha'] ?? '').toString();
+          if (fecha.isEmpty) continue;
+          final kg = double.tryParse((b['registro_mov'] ?? '0').toString()) ?? 0.0;
+
+          if (!grupos.containsKey(fecha)) {
+            grupos[fecha] = {'fecha_grupo': fecha, 'total_bins': 0, 'total_kg': 0.0};
+          }
+          grupos[fecha]!['total_bins'] = (grupos[fecha]!['total_bins'] as int) + 1;
+          grupos[fecha]!['total_kg'] = (grupos[fecha]!['total_kg'] as double) + kg;
+        }
+
+        final res = grupos.values.toList();
+        res.sort((a, b) => b['fecha_grupo'].toString().compareTo(a['fecha_grupo'].toString()));
+        return res;
+      }
+
+      // 3. Suma de peso acumulado por celda/lote (Embolsado)
+      if (sql.toUpperCase().contains('SUM(CAST(KG AS REAL))')) {
+        final codCelda = arguments?.isNotEmpty == true ? arguments![0] : null;
+        var q = supabase.from('embolsado_bag').select('kg');
+        if (codCelda != null) {
+          q = q.eq('celda', codCelda);
+        }
+        final res = await q;
+        double total = 0;
+        for (var r in res) {
+          total += double.tryParse((r['kg'] ?? '0').toString()) ?? 0.0;
+        }
+        return [{'total_kg': total}];
+      }
+
+      // 4. Conteo general o agrupado
+      if (sql.toUpperCase().contains('SELECT ESTABLECIMIENTO FROM INVENTARIO')) {
+        final res = await supabase.from('inventario').select('establecimiento');
+        final unicos = <String>{};
+        for (var r in res) {
+          final est = r['establecimiento']?.toString();
+          if (est != null && est.isNotEmpty) unicos.add(est);
+        }
+        return unicos.map((e) => {'establecimiento': e}).toList();
+      }
+
       if (sql.toUpperCase().contains('COUNT(*)')) {
-        return [{'t': 0}];
+        return [{'total': 0, 't': 0}];
       }
 
       return [];
@@ -515,7 +534,12 @@ class _WebDatabaseAdapter {
     }
   }
 
-  Future<int> insert(String table, Map<String, dynamic> values, {String? nullColumnHack, ConflictAlgorithm? conflictAlgorithm}) async {
+  Future<int> insert(
+    String table,
+    Map<String, dynamic> values, {
+    String? nullColumnHack,
+    ConflictAlgorithm? conflictAlgorithm,
+  }) async {
     try {
       final payload = Map<String, dynamic>.from(values);
       payload.remove('sincronizado');
@@ -527,11 +551,17 @@ class _WebDatabaseAdapter {
     }
   }
 
-  Future<int> update(String table, Map<String, dynamic> values, {String? where, List<Object?>? whereArgs, ConflictAlgorithm? conflictAlgorithm}) async {
+  Future<int> update(
+    String table,
+    Map<String, dynamic> values, {
+    String? where,
+    List<Object?>? whereArgs,
+    ConflictAlgorithm? conflictAlgorithm,
+  }) async {
     try {
       final payload = Map<String, dynamic>.from(values);
       payload.remove('sincronizado');
-      
+
       dynamic builder = supabase.from(table).update(payload);
       if (where != null && whereArgs != null && whereArgs.isNotEmpty) {
         final columna = where.split('=').first.trim();
@@ -545,7 +575,11 @@ class _WebDatabaseAdapter {
     }
   }
 
-  Future<int> delete(String table, {String? where, List<Object?>? whereArgs}) async {
+  Future<int> delete(
+    String table, {
+    String? where,
+    List<Object?>? whereArgs,
+  }) async {
     try {
       dynamic builder = supabase.from(table).delete();
       if (where != null && whereArgs != null && whereArgs.isNotEmpty) {
