@@ -343,7 +343,7 @@ class _WebDatabaseAdapter {
   final SupabaseClient supabase;
   _WebDatabaseAdapter(this.supabase);
 
-  // ESTO LO MODIFIQUE: Soporte de db.transaction para operaciones atómicas en web
+  // Soporte de transacciones en Web
   Future<T> transaction<T>(Future<T> Function(dynamic txn) action) async {
     return await action(this);
   }
@@ -364,36 +364,37 @@ class _WebDatabaseAdapter {
       dynamic builder = supabase.from(table).select();
 
       if (where != null) {
-        String w = where;
-        if (whereArgs != null && whereArgs.isNotEmpty) {
-          int argIdx = 0;
-          w = w.replaceAllMapped(RegExp(r'\?'), (_) {
-            if (argIdx < whereArgs.length) {
-              final val = whereArgs[argIdx++];
-              return val == null ? 'NULL' : "'$val'";
-            }
-            return '?';
-          });
+        // Soporte para fechas compuestas (ej: fecha_emb = ? OR fecha = ?)
+        if (where.contains('fecha_emb = ? OR fecha = ?') && whereArgs != null && whereArgs.isNotEmpty) {
+          final valor = whereArgs.first.toString();
+          builder = builder.or('fecha_emb.eq.$valor,fecha.eq.$valor');
         }
-
-        // Casos estándar de filtrado
-        if (w.contains('=')) {
-          final partes = w.split('=');
-          final columna = partes[0].trim();
-          final valor = partes[1].replaceAll("'", "").trim();
-          builder = builder.eq(columna, valor);
-        } else if (w.contains('!=')) {
-          final partes = w.split('!=');
-          final columna = partes[0].trim();
-          final valor = partes[1].replaceAll("'", "").trim();
-          builder = builder.neq(columna, valor);
+        // Soporte para materias activas (estado != 'VOLCADO' OR estado IS NULL)
+        else if (where.contains("estado != 'VOLCADO'") || where.contains('estado != ?')) {
+          builder = builder.neq('estado', 'VOLCADO').neq('estado', 'INACTIVO');
+        }
+        else if (where.contains('!=')) {
+          final partes = where.split('!=');
+          final col = partes[0].replaceAll("'", "").trim();
+          final val = (whereArgs != null && whereArgs.isNotEmpty)
+              ? whereArgs.first.toString()
+              : partes[1].replaceAll("'", "").trim();
+          builder = builder.neq(col, val);
+        }
+        else if (where.contains('=')) {
+          final partes = where.split('=');
+          final col = partes[0].replaceAll("'", "").trim();
+          final val = (whereArgs != null && whereArgs.isNotEmpty)
+              ? whereArgs.first.toString()
+              : partes[1].replaceAll("'", "").trim();
+          builder = builder.eq(col, val);
         }
       }
 
       if (orderBy != null) {
         final partes = orderBy.split(',');
         for (var p in partes) {
-          final tokens = p.trim().split(' ');
+          final tokens = p.trim().split(RegExp(r'\s+'));
           final col = tokens[0].trim();
           final asc = tokens.length > 1 ? tokens[1].toUpperCase() == 'ASC' : true;
           builder = builder.order(col, ascending: asc);
@@ -412,6 +413,7 @@ class _WebDatabaseAdapter {
     }
   }
 
+  // ESTO LO MODIFIQUE: rawQuery único y consolidado sin duplicaciones
   Future<List<Map<String, dynamic>>> rawQuery(String sql, [List<Object?>? arguments]) async {
     try {
       // 1. Cruce completo de recepciones, calidades y calibres para Celdas y Calidad
@@ -451,14 +453,12 @@ class _WebDatabaseAdapter {
           });
         }
 
-        // Filtro por estado si lo pide la query
         if (sql.contains("r.estado = 'ACTIVO'")) {
           listaCombinada.removeWhere((item) => (item['estado'] ?? '').toString().toUpperCase() != 'ACTIVO');
         } else if (sql.contains("r.estado = 'PASIVO'")) {
           listaCombinada.removeWhere((item) => (item['estado'] ?? '').toString().toUpperCase() != 'PASIVO');
         }
 
-        // Orden de prioridad: ACTIVO -> PASIVO -> OTROS
         listaCombinada.sort((a, b) {
           int getPrioridad(String? est) {
             final e = (est ?? '').toUpperCase();
@@ -477,16 +477,28 @@ class _WebDatabaseAdapter {
 
       // 2. Acumulados de peso por fecha en Bins (Archivero)
       if (sql.contains('empaque_armado_bins') && sql.contains('fecha_grupo')) {
-        final bins = await supabase.from('empaque_armado_bins').select();
-        final Map<String, Map<String, dynamic>> grupos = {};
+        final List<dynamic> bins = await supabase
+            .from('empaque_armado_bins')
+            .select()
+            .order('fecha_emb', ascending: false);
 
-        for (var b in bins) {
-          final fecha = (b['fecha_emb'] ?? b['fecha'] ?? '').toString();
+        final Map<String, Map<String, dynamic>> grupos = {};
+        for (var item in bins) {
+          final b = Map<String, dynamic>.from(item);
+          final String cod = (b['cod_bin'] ?? '').toString().trim();
+          if (cod.isEmpty) continue;
+
+          final String fecha = (b['fecha_emb'] ?? b['fecha'] ?? '').toString();
           if (fecha.isEmpty) continue;
-          final kg = double.tryParse((b['registro_mov'] ?? '0').toString()) ?? 0.0;
+
+          final double kg = double.tryParse((b['registro_mov'] ?? '0').toString()) ?? 0.0;
 
           if (!grupos.containsKey(fecha)) {
-            grupos[fecha] = {'fecha_grupo': fecha, 'total_bins': 0, 'total_kg': 0.0};
+            grupos[fecha] = {
+              'fecha_grupo': fecha,
+              'total_bins': 0,
+              'total_kg': 0.0,
+            };
           }
           grupos[fecha]!['total_bins'] = (grupos[fecha]!['total_bins'] as int) + 1;
           grupos[fecha]!['total_kg'] = (grupos[fecha]!['total_kg'] as double) + kg;
@@ -512,7 +524,7 @@ class _WebDatabaseAdapter {
         return [{'total_kg': total}];
       }
 
-      // 4. Conteo general o agrupado
+      // 4. Catálogo de Establecimientos
       if (sql.toUpperCase().contains('SELECT ESTABLECIMIENTO FROM INVENTARIO')) {
         final res = await supabase.from('inventario').select('establecimiento');
         final unicos = <String>{};

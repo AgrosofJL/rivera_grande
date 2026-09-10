@@ -68,8 +68,10 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
   // Carga de depósitos maestros desde parámetros
   Future<void> _cargarDepositos() async {
     try {
-      final db = await dbHelper.database;
-      final List<Map<String, dynamic>> res = await db.query('parametros_depositos');
+      final dynamic db = await dbHelper.database;
+      final List<Map<String, dynamic>> res = List<Map<String, dynamic>>.from(
+        await db.query('parametros_depositos')
+      );
       setState(() {
         if (res.isNotEmpty) {
           depositosDisponibles = res
@@ -78,7 +80,6 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
               .toSet()
               .toList();
         } else {
-          // Fallback en caso de no tener catálogo descargado
           depositosDisponibles = ['PLANTA CENTRAL', 'DEPÓSITO 1', 'DEPÓSITO 2', 'CÁMARA DE FRÍO', 'DESPACHO'];
         }
       });
@@ -88,24 +89,28 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
     }
   }
 
-  // Consulta de Bolsones y Bins activos
+  // ESTO LO MODIFIQUE: Consulta robusta que carga materias activas tanto en Web como en Móvil
   Future<void> _cargarDatos() async {
     setState(() => cargando = true);
-    final db = await dbHelper.database;
+    final dynamic db = await dbHelper.database;
 
     try {
       // 1. Bolsones (Big Bags)
-      final List<Map<String, dynamic>> resBolsones = await db.query(
-        'embolsado_bag',
-        where: "estado != 'VOLCADO' OR estado IS NULL",
-        orderBy: 'fecha DESC, hora DESC, id DESC',
+      final List<Map<String, dynamic>> resBolsones = List<Map<String, dynamic>>.from(
+        await db.query(
+          'embolsado_bag',
+          where: "estado != 'VOLCADO'",
+          orderBy: 'fecha DESC, hora DESC, id DESC',
+        )
       );
 
       // 2. Bins de empaque
-      final List<Map<String, dynamic>> resBins = await db.query(
-        'empaque_armado_bins',
-        where: "estado != 'VOLCADO' OR estado IS NULL",
-        orderBy: 'fecha_emb DESC, hora_emb DESC, id DESC',
+      final List<Map<String, dynamic>> resBins = List<Map<String, dynamic>>.from(
+        await db.query(
+          'empaque_armado_bins',
+          where: "estado != 'VOLCADO'",
+          orderBy: 'fecha_emb DESC, hora_emb DESC, id DESC',
+        )
       );
 
       setState(() {
@@ -150,20 +155,19 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
     }).toList();
   }
 
-  // Reubicación atómica de materia prima en SQLite con bandera de sincronización
   Future<void> _moverMateria({
     required String tabla,
     required String regLocal,
     required String nuevoDeposito,
     required String codigoItem,
   }) async {
-    final db = await dbHelper.database;
+    final dynamic db = await dbHelper.database;
     try {
       await db.update(
         tabla,
         {
           'deposito': nuevoDeposito,
-          'sincronizado': 0, // Listo para sincronizar con Supabase
+          'sincronizado': 0,
         },
         where: 'reg_local = ?',
         whereArgs: [regLocal],
@@ -176,7 +180,6 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
     }
   }
 
-  // Escáner QR para ubicar o mover rápidamente un bolsón o bin
   void _abrirEscanerRapido() {
     final MobileScannerController scannerController = MobileScannerController(
       facing: CameraFacing.back,
@@ -249,7 +252,6 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
     ).whenComplete(() => scannerController.dispose());
   }
 
-  // Modal para seleccionar el depósito de destino
   void _mostrarModalSeleccionDeposito({
     required BuildContext context,
     required String tabla,
@@ -312,9 +314,9 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
                   children: [
                     const Icon(Icons.location_on_rounded, color: kColorAccent, size: 20),
                     const SizedBox(width: 8),
-                    Text(
+                    const Text(
                       "Ubicación actual: ",
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: kColorTextSecondary),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: kColorTextSecondary),
                     ),
                     Text(
                       depositoActual,
@@ -415,7 +417,6 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
 
     return Scaffold(
       backgroundColor: kColorBg,
-      // BARRA SUPERIOR AGROSOFT
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(62),
         child: Container(
@@ -461,7 +462,7 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
                           style: TextStyle(fontFamily: 'Roboto', fontWeight: FontWeight.w700, fontSize: 15, color: kColorText),
                         ),
                         Text(
-                          "",
+                          "Gestión de Stock en Depósitos",
                           style: TextStyle(fontFamily: 'Roboto', fontSize: 11, color: kColorTextSecondary, fontWeight: FontWeight.w500),
                         ),
                       ],
@@ -508,7 +509,6 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
               children: [
                 Row(
                   children: [
-                    // Caja de texto buscador
                     Expanded(
                       child: Container(
                         height: 42,
@@ -546,7 +546,6 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
                     ),
                     const SizedBox(width: 8),
 
-                    // Botón Escáner QR Rápido
                     InkWell(
                       onTap: _abrirEscanerRapido,
                       borderRadius: BorderRadius.circular(12),
@@ -656,9 +655,6 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
     );
   }
 
-  // =========================================================================
-  // GRID DE CARDS PARA MOVER MATERIAS PRIMAS (TABLET Y MÓVIL)
-  // =========================================================================
   Widget _buildGridItems(List<Map<String, dynamic>> lista, {required bool esBolson, required int crossAxisCount}) {
     if (lista.isEmpty) {
       return ListView(
@@ -728,7 +724,6 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // Cabecera: Código + Ubicación actual destacada
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -776,7 +771,6 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
               ],
             ),
 
-            // Datos de lote, variedad y peso
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.end,
@@ -803,7 +797,6 @@ class _PaginaMovMateriaState extends State<PaginaMovMateria> with SingleTickerPr
 
             const Divider(height: 8, color: kColorBorder),
 
-            // Botón de acción rápido para mover
             SizedBox(
               width: double.infinity,
               height: 36,
