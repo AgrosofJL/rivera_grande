@@ -107,45 +107,63 @@ class _PaginaClasibinState extends State<PaginaClasibin> with SingleTickerProvid
   }
 
   // ESTO LO MODIFIQUE: Consulta del último bolsón volcado en línea + Historial de Bins clasificados
+  // ESTO LO MODIFIQUE: Consulta robusta compatible con Web y Móvil
   Future<void> _cargarDatos() async {
     setState(() => cargando = true);
-    final db = await dbHelper.database;
+    final dynamic db = await dbHelper.database;
     final String fechaHoy = DateFormat('yyyy-MM-dd').format(DateTime.now());
 
     try {
-      // 1. ACA ES LO NUEVO: Últimos bolsones volcados para arrastre en tiempo real
-      final List<Map<String, dynamic>> resVolcados = await db.query(
-        'volcado_bag',
-        orderBy: 'fecha DESC, hora DESC',
-        limit: 10,
+      // 1. Bolsones volcados activos
+      final List<Map<String, dynamic>> resVolcados = List<Map<String, dynamic>>.from(
+        await db.query(
+          'volcado_bag',
+          orderBy: 'fecha DESC, hora DESC',
+          limit: 10,
+        )
       );
 
-      // 2. Bins clasificados hoy (empaque_armado_bins)
-      final List<Map<String, dynamic>> resBinsHoy = await db.query(
-        'empaque_armado_bins',
-        where: "fecha_emb = ? OR fecha = ?",
-        whereArgs: [fechaHoy, fechaHoy],
-        orderBy: "hora_emb DESC, hora DESC, id DESC",
+      // 2. Bins del día (con fallback a últimos registros si hoy aún no se cargaron)
+      List<Map<String, dynamic>> resBins = List<Map<String, dynamic>>.from(
+        await db.query(
+          'empaque_armado_bins',
+          where: "fecha_emb = ? OR fecha = ?",
+          whereArgs: [fechaHoy],
+          orderBy: "hora_emb DESC, hora DESC, id DESC",
+        )
       );
 
-      // 3. Resumen agrupado por fechas para el Archivero
-      final List<Map<String, dynamic>> resDias = await db.rawQuery('''
-        SELECT 
-          COALESCE(fecha_emb, fecha) as fecha_grupo,
-          COUNT(*) as total_bins,
-          SUM(CAST(registro_mov AS REAL)) as total_kg
-        FROM empaque_armado_bins
-        WHERE cod_bin IS NOT NULL AND cod_bin != ''
-        GROUP BY COALESCE(fecha_emb, fecha)
-        ORDER BY fecha_grupo DESC
-      ''');
+      // Si hoy no hubo ingresos, traer los últimos 30 bins para no mostrar la grilla vacía
+      if (resBins.isEmpty) {
+        resBins = List<Map<String, dynamic>>.from(
+          await db.query(
+            'empaque_armado_bins',
+            orderBy: "fecha_emb DESC, hora_emb DESC, id DESC",
+            limit: 30,
+          )
+        );
+      }
+
+      // 3. Archivero por días
+      final List<Map<String, dynamic>> resDias = List<Map<String, dynamic>>.from(
+        await db.rawQuery('''
+          SELECT 
+            COALESCE(fecha_emb, fecha) as fecha_grupo,
+            COUNT(*) as total_bins,
+            SUM(CAST(registro_mov AS REAL)) as total_kg
+          FROM empaque_armado_bins
+          WHERE cod_bin IS NOT NULL AND cod_bin != ''
+          GROUP BY COALESCE(fecha_emb, fecha)
+          ORDER BY fecha_grupo DESC
+        ''')
+      );
 
       setState(() {
         ultimosBolsonesVolcados = resVolcados;
         if (resVolcados.isNotEmpty) {
-          bolsonVolcadoActivo = resVolcados.first; // El más reciente en línea
+          bolsonVolcadoActivo = resVolcados.first;
         }
-        binsDelDia = resBinsHoy;
+        binsDelDia = resBins;
         resumenPorDias = resDias;
         _aplicarFiltros();
         cargando = false;
@@ -155,7 +173,7 @@ class _PaginaClasibinState extends State<PaginaClasibin> with SingleTickerProvid
       setState(() => cargando = false);
     }
   }
-
+  
   void _aplicarFiltros() {
     final query = queryBusqueda.toLowerCase().trim();
 
